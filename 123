@@ -1,0 +1,302 @@
+-- Roblox载具加速 - 可移动按钮版
+-- 按住屏幕上的正方形按钮持续加速
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+
+-- ========== 配置参数 ==========
+local CONFIG = {
+    -- 速度设置
+    BASE_SPEED = 50,
+    MAX_SPEED = 180,
+    
+    -- 加速设置
+    BOOST_INCREMENT = 2,        -- 每秒增加的速度
+    MAX_BOOST_LEVEL = 100,      -- 最大加速等级
+    BOOST_DECAY_RATE = 5,       -- 松开按钮时每秒衰减
+    
+    -- 按钮设置
+    BUTTON_SIZE = 70,           -- 按钮大小(像素)
+    BUTTON_COLOR = Color3.fromRGB(0, 150, 255),
+    ACTIVE_COLOR = Color3.fromRGB(255, 100, 0),
+    BUTTON_OPACITY = 0.7,
+    
+    -- 物理设置
+    BASE_TORQUE = 50000,
+    BOOST_TORQUE = 75000,
+    TURN_SPEED = 1.5
+}
+
+-- ========== 全局变量 ==========
+local VehicleSystem = {
+    Players = {},
+    DragEnabled = false,
+    ButtonDragging = false,
+ButtonPositions={}
+}
+
+-- ========== 初始化函数 ==========
+function VehicleSystem.Init()
+打印("🚗 载具加速系统启动中...")
+    
+-- 玩家加入
+players.PlayerAdded：连接(函数(播放器)
+VehicleSystem.SetupPlayer(播放器)
+结束)
+    
+-- 玩家离开
+播放器。播放器移除：连接(功能(播放器)
+VehicleSystem.CleanupPlayer(播放器)
+结束)
+    
+-- 为已存在的玩家初始化
+对于_，ipairs中的player(players:GetPlayers())do
+VehicleSystem.SetupPlayer(播放器)
+结束
+    
+-- 启动循环
+VehicleSystem.StartUpdateLoop()
+    
+打印("✅ 载具加速系统已启动")
+结束
+
+-- ========== 玩家设置 ==========
+功能车辆系统.SetupPlayer(播放器)
+如果VehicleSystem.Players[player]，则返回结束
+    
+本地状态={
+InVehicle=false，
+车辆=零，
+DriveSeat=零，
+BoostLevel=0，
+IsBoosting=false，
+ButtonPressed=false，
+ButtonHeldTime=0，
+GUI=零，
+connections={}
+    }
+    
+VehicleSystem.Players[player]=状态
+    
+-- 角色加载
+运动员。CharacterAdded:Connect(函数(字符)
+车辆系统.检查车辆(角色，播放器)
+结束)
+    
+-- 已有角色
+如果播放器.字符，则
+task.wait(1)
+车辆系统.检查车辆(播放器.字符，播放器)
+结束
+    
+--创建GUI(预创建)
+state.GUI=VehicleSystem.CreateBoostButton(播放器)
+结束
+
+-- ========== 创建可移动加速按钮 ==========
+功能车辆系统.CreateBoostButton(播放器)
+本地playerGui=player:WaitForChild("PlayerGui")
+    
+--创建ScreenGui
+本地screenGui=Instance.new("ScreenGui")
+screenGui.Name="车辆助力按钮"
+screenGui.ResetOnSpawn=false
+screenGui.ZIndexBehavior=枚举.ZIndexBehavior.Sibling
+screenGui.Enabled=false
+screenGui.Parent=playerGui
+    
+-- 按钮容器（用于拖动）
+本地按钮Container=Instance.new("Frame")
+    buttonContainer.Name = "BoostButtonContainer"
+    buttonContainer.Size = UDim2.new(0, CONFIG.BUTTON_SIZE + 20, 0, CONFIG.BUTTON_SIZE + 20)
+    buttonContainer.Position = UDim2.new(0.8, 0, 0.7, 0)  -- 默认位置：右下角
+    buttonContainer.BackgroundTransparency = 1
+    buttonContainer.Parent = screenGui
+    
+    -- 按钮背景（可拖动的区域）
+    local buttonBackground = Instance.new("Frame")
+    buttonBackground.Name = "ButtonBackground"
+    buttonBackground.Size = UDim2.new(1, 0, 1, 0)
+    buttonBackground.Position = UDim2.new(0, 0, 0, 0)
+    buttonBackground.BackgroundTransparency = 1
+    buttonBackground.Parent = buttonContainer
+    
+    -- 可拖动区域
+    local dragFrame = Instance.new("Frame")
+    dragFrame.Name = "DragFrame"
+    dragFrame.Size = UDim2.new(1, 0, 0.2, 0)
+    dragFrame.Position = UDim2.new(0, 0, 0, 0)
+    dragFrame.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+    dragFrame.BackgroundTransparency = 0.9
+    dragFrame.BorderSizePixel = 0
+    dragFrame.Parent = buttonBackground
+    
+    local dragCorner = Instance.new("UICorner")
+    dragCorner.CornerRadius = UDim.new(0, 8)
+    dragCorner.Parent = dragFrame
+    
+    local dragLabel = Instance.new("TextLabel")
+    dragLabel.Name = "DragLabel"
+    dragLabel.Size = UDim2.new(1, 0, 1, 0)
+    dragLabel.Position = UDim2.new(0, 0, 0, 0)
+    dragLabel.BackgroundTransparency = 1
+    dragLabel.Text = "⬍ 拖动此处"
+    dragLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+    dragLabel.TextSize = 10
+    dragLabel.Font = Enum.Font.Gotham
+dragLabel.TextXAlignment=枚举.TextXAlignment.Center
+dragLabel.Parent=dragframe
+    
+-- 主按钮（正方形）
+本地boostButton=Instance.new("TextButton")
+boostButton.Name="BoostButton"
+boostButton.Size=UDim2.new(0，CONFIG.BUTTON_SIZE，0，CONFIG.BUTTON_SIZE)
+boostButton.Position=UDim2.new(0.5，-CONFIG.BUTTON_SIZE/2，0.2，0)
+boostButton.AnchorPoint=Vector2.new(0.5，0)
+boostButton.BackgroundColor3=CONFIG.BUTTON_COLOR
+boostButton.BackgroundTransparency=CONFIG.BUTTON_OPACITY
+boostButton.BorderSizePixel=0
+boostButton.Text="按住加速"
+boostButton.TextColor3=Color3.fromRGB(255，255，255)
+boostButton.TextSize=14
+boostButton.Font=枚举.Font.GothamBold
+boostButton.AutoButtonColor=false
+boostButton.Parent=buttonBackground
+    
+-- 按钮圆角
+本地buttonCorner=Instance.new("UICorner")
+buttonCorner.CornerRadius=UDim.new(0，12)
+buttonCorner.Parent=boostButton
+    
+-- 按钮边框
+本地buttonStroke=Instance.new("UIStroke")
+buttonStroke.Color=Color3.fromRGB(255，255，255)
+buttonStroke.Thickness=2.5
+    buttonStroke.Parent = boostButton
+    
+    -- 按钮发光效果
+    local buttonGlow = Instance.new("UIStroke")
+    buttonGlow.Name = "ButtonGlow"
+    buttonGlow.Color = CONFIG.BUTTON_COLOR
+    buttonGlow.Thickness = 0
+    buttonGlow.Transparency = 0.5
+    buttonGlow.Parent = boostButton
+    
+    -- 进度指示器（圆形）
+    local progressIndicator = Instance.new("Frame")
+    progressIndicator.Name = "ProgressIndicator"
+    progressIndicator.Size = UDim2.new(1, -20, 1, -20)
+    progressIndicator.Position = UDim2.new(0, 10, 0, 10)
+    progressIndicator.BackgroundTransparency = 1
+    progressIndicator.Parent = boostButton
+    
+    local progressCorner = Instance.new("UICorner")
+    progressCorner.CornerRadius = UDim.new(1, 0)
+    progressCorner.Parent = progressIndicator
+    
+    local progressStroke = Instance.new("UIStroke")
+    progressStroke.Name = "ProgressStroke"
+    progressStroke.Color = Color3.fromRGB(255, 255, 255)
+    progressStroke.Thickness = 3
+    progressStroke.Transparency = 0.3
+    progressStroke.Parent = progressIndicator
+    
+    -- 速度指示文本
+    local speedText = Instance.new("TextLabel")
+    speedText.Name = "SpeedText"
+    speedText.Size = UDim2.new(1, 0, 0, 40)
+    speedText.Position = UDim2.new(0, 0, 0, CONFIG.BUTTON_SIZE + 5)
+    speedText.BackgroundTransparency = 1
+    speedText.Text = "0%"
+    speedText.TextColor3 = Color3.fromRGB(255, 255, 255)
+    speedText.TextSize = 16
+    speedText.Font = Enum.Font.GothamBold
+    speedText.Parent = buttonBackground
+    
+    -- ========== 按钮拖动逻辑 ==========
+    local isDragging = false
+    local dragStartPos, buttonStartPos
+    
+    -- 开始拖动
+    dragFrame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or 
+           input.UserInputType == Enum.UserInputType.Touch then
+            isDragging = true
+            dragStartPos = input.Position
+            buttonStartPos = buttonContainer.Position
+            
+            -- 视觉反馈
+            dragFrame.BackgroundTransparency = 0.7
+        end
+    end)
+    
+    -- 拖动中
+    UserInputService.InputChanged:Connect(function(input)
+        if isDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or 
+                          input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - dragStartPos
+            local newPos = UDim2.new(
+                buttonStartPos.X.Scale,
+                buttonStartPos.X.Offset + delta.X,
+                buttonStartPos.Y.Scale,
+                buttonStartPos.Y.Offset + delta.Y
+            )
+            
+            -- 限制在屏幕内
+            local screenSize = playerGui.AbsoluteSize
+            local buttonSize = buttonContainer.AbsoluteSize
+            
+            local minX = 0
+            local maxX = screenSize.X - buttonSize.X
+            local minY = 0
+            local maxY = screenSize.Y - buttonSize.Y
+            
+            local absX = buttonStartPos.X.Offset + delta.X
+            local absY = buttonStartPos.Y.Offset + delta.Y
+            
+            absX = math.clamp(absX, minX, maxX)
+            absY = math.clamp(absY, minY, maxY)
+            
+            buttonContainer.Position = UDim2.new(0, absX, 0, absY)
+        end
+    end)
+    
+    -- 结束拖动
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or 
+           input.UserInputType == Enum.UserInputType.Touch then
+            if isDragging then
+                isDragging = false
+                dragFrame.BackgroundTransparency = 0.9
+                
+                -- 保存位置
+                VehicleSystem.ButtonPositions[player] = buttonContainer.Position
+            end
+        end
+    end)
+    
+    -- ========== 加速按钮逻辑 ==========
+    local isButtonPressed = false
+    local pressStartTime = 0
+    
+    -- 按下按钮
+    boostButton.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or 
+           input.UserInputType == Enum.UserInputType.Touch then
+            if not VehicleSystem.Players[player].InVehicle then return end
+            
+            isButtonPressed = true
+            pressStartTime = tick()
+            VehicleSystem.Players[player].ButtonPressed = true
+            VehicleSystem.Players[player].IsBoosting = true
+            
+            -- 视觉反馈
+            boostButton.BackgroundColor3 = CONFIG.ACTIVE_COLOR
+            buttonGlow.Color = CONFIG.ACTIVE_COLOR
+            buttonGlow.Thickness = 5
+            
+            -- 按钮缩放动画
+            local tweenInfo = TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+            local tween = TweenService:Create(boostButto
