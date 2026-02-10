@@ -1,0 +1,313 @@
+-- 将此代码复制到Roblox Studio中的Script对象中
+-- 确保脚本挂在载具模型下
+
+-- 载具加速控制器脚本
+local vehicle = script.Parent
+local Players = game:GetService("Players")
+
+-- 配置参数（可根据需要修改）
+local CONFIG = {
+    BASE_SPEED = 50,        -- 基础速度
+    MAX_BOOST_SPEED = 150,  -- 最大加速速度
+    BOOST_AMOUNT = 10,      -- 每次点击增加的速度
+    BOOST_DURATION = 3,     -- 加速持续时间（秒）
+    COOLDOWN = 5,           -- 冷却时间（秒）
+    TORQUE = 50000,
+    TURN_SPEED = 2
+}
+
+-- 存储玩家状态
+local playerStates = {}
+local guiCache = {}
+
+-- 创建GUI函数
+local function createSpeedGUI(player)
+    -- 创建ScreenGui
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "VehicleSpeedGUI"
+    screenGui.ResetOnSpawn = false
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    screenGui.Parent = player:WaitForChild("PlayerGui")
+    
+    -- 主框架
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Name = "SpeedController"
+    mainFrame.Size = UDim2.new(0, 250, 0, 180)
+    mainFrame.Position = UDim2.new(0.5, -125, 0.8, -90) -- 屏幕底部中央
+    mainFrame.AnchorPoint = Vector2.new(0.5, 0)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+    mainFrame.BackgroundTransparency = 0.2
+    mainFrame.BorderSizePixel = 2
+    mainFrame.BorderColor3 = Color3.fromRGB(0, 120, 215)
+    mainFrame.Visible = false
+    mainFrame.Parent = screenGui
+    
+    -- 标题
+    local title = Instance.new("TextLabel")
+    title.Name = "Title"
+    title.Size = UDim2.new(1, 0, 0, 30)
+    title.Position = UDim2.new(0, 0, 0, 0)
+    title.BackgroundColor3 = Color3.fromRGB(0, 90, 180)
+    title.BackgroundTransparency = 0.3
+    title.Text = "🚗 载具加速控制器"
+    title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    title.TextSize = 16
+    title.Font = Enum.Font.GothamBold
+    title.Parent = mainFrame
+    
+    -- 当前速度显示
+    local speedDisplay = Instance.new("TextLabel")
+    speedDisplay.Name = "SpeedDisplay"
+    speedDisplay.Size = UDim2.new(1, -20, 0, 40)
+    speedDisplay.Position = UDim2.new(0, 10, 0, 40)
+    speedDisplay.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+    speedDisplay.BackgroundTransparency = 0.5
+    speedDisplay.Text = "当前速度: " .. CONFIG.BASE_SPEED .. " km/h"
+    speedDisplay.TextColor3 = Color3.fromRGB(255, 255, 255)
+    speedDisplay.TextSize = 18
+    speedDisplay.Font = Enum.Font.Gotham
+    speedDisplay.Parent = mainFrame
+    
+    -- 加速按钮
+    local boostButton = Instance.new("TextButton")
+    boostButton.Name = "BoostButton"
+    boostButton.Size = UDim2.new(1, -20, 0, 60)
+    boostButton.Position = UDim2.new(0, 10, 0, 90)
+    boostButton.BackgroundColor3 = Color3.fromRGB(0, 150, 0)
+    boostButton.BackgroundTransparency = 0.2
+    boostButton.BorderSizePixel = 0
+    boostButton.Text = "🔥 加速 (+" .. CONFIG.BOOST_AMOUNT .. " km/h)"
+    boostButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    boostButton.TextSize = 16
+    boostButton.Font = Enum.Font.GothamBold
+    boostButton.AutoButtonColor = true
+    boostButton.Parent = mainFrame
+    
+    -- 按钮圆角
+    local buttonCorner = Instance.new("UICorner")
+    buttonCorner.CornerRadius = UDim.new(0, 8)
+    buttonCorner.Parent = boostButton
+    
+    -- 冷却时间显示
+    local cooldownLabel = Instance.new("TextLabel")
+    cooldownLabel.Name = "CooldownLabel"
+    cooldownLabel.Size = UDim2.new(1, -20, 0, 20)
+    cooldownLabel.Position = UDim2.new(0, 10, 0, 155)
+    cooldownLabel.BackgroundTransparency = 1
+    cooldownLabel.Text = "冷却时间: 0秒"
+    cooldownLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+    cooldownLabel.TextSize = 14
+    cooldownLabel.Font = Enum.Font.Gotham
+    cooldownLabel.Parent = mainFrame
+    
+    -- 框架圆角
+    local frameCorner = Instance.new("UICorner")
+    frameCorner.CornerRadius = UDim.new(0, 12)
+    frameCorner.Parent = mainFrame
+    
+    -- 标题圆角
+    local titleCorner = Instance.new("UICorner")
+    titleCorner.CornerRadius = UDim.new(0, 12)
+    titleCorner.Parent = title
+    
+    return {
+        ScreenGui = screenGui,
+        MainFrame = mainFrame,
+        SpeedDisplay = speedDisplay,
+        BoostButton = boostButton,
+        CooldownLabel = cooldownLabel
+    }
+end
+
+-- 更新GUI显示
+local function updateGUI(player, currentSpeed, boostLevel, cooldownTime)
+    local gui = guiCache[player]
+    if not gui then return end
+    
+    -- 更新速度显示
+    gui.SpeedDisplay.Text = string.format("当前速度: %d km/h", currentSpeed)
+    
+    -- 根据加速级别改变颜色
+    if boostLevel > 0 then
+        local colorIntensity = math.min(boostLevel * 0.3, 1)
+        gui.SpeedDisplay.TextColor3 = Color3.fromRGB(
+            255,
+            math.floor(255 * (1 - colorIntensity)),
+            math.floor(255 * (1 - colorIntensity))
+        )
+    else
+        gui.SpeedDisplay.TextColor3 = Color3.fromRGB(255, 255, 255)
+    end
+    
+    -- 更新冷却时间
+    if cooldownTime > 0 then
+        gui.CooldownLabel.Text = string.format("冷却时间: %.1f秒", cooldownTime)
+        gui.CooldownLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+        gui.BoostButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+        gui.BoostButton.Text = "⏳ 冷却中..."
+        gui.BoostButton.Active = false
+    else
+        gui.CooldownLabel.Text = "准备就绪"
+        gui.CooldownLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+        gui.BoostButton.BackgroundColor3 = Color3.fromRGB(0, 150, 0)
+        gui.BoostButton.Text = string.format("🔥 加速 (+%d km/h)", CONFIG.BOOST_AMOUNT)
+        gui.BoostButton.Active = true
+    end
+end
+
+-- 加速功能
+local function applySpeedBoost(player)
+    local state = playerStates[player]
+    if not state or not state.InVehicle or state.Cooldown > 0 then 
+        return 
+    end
+    
+    local driveSeat = state.DriveSeat
+    if not driveSeat then return end
+    
+    -- 计算新速度
+    local currentSpeed = driveSeat.MaxSpeed or CONFIG.BASE_SPEED
+    local newSpeed = math.min(currentSpeed + CONFIG.BOOST_AMOUNT, CONFIG.MAX_BOOST_SPEED)
+    
+    -- 应用新速度
+    driveSeat.MaxSpeed = newSpeed
+    state.BoostLevel = (newSpeed - CONFIG.BASE_SPEED) / CONFIG.BOOST_AMOUNT
+    
+    -- 设置冷却时间
+    state.Cooldown = CONFIG.COOLDOWN
+    state.LastBoostTime = tick()
+    
+    -- 更新GUI
+    updateGUI(player, newSpeed, state.BoostLevel, state.Cooldown)
+    
+    -- 播放声音效果（可选）
+    if driveSeat:FindFirstChild("BoostSound") then
+        driveSeat.BoostSound:Play()
+    end
+    
+    print(string.format("玩家 %s 加速到 %d km/h", player.Name, newSpeed))
+    
+    -- 自动恢复速度
+任务.延迟(CONFIG.BOOST_DURATION，函数()
+if state和state.InVehicle和driveSeat，然后
+driveSeat.MaxSpeed=CONFIG.BASE_SPEED
+state.BoostLevel=0
+updateGUI(播放器，CONFIG.BASE_SPEED，0，state.Cooldown)
+结束
+结束)
+结束
+
+-- 查找载具座位
+局部函数findVehicleSeat()
+-- 尝试多种可能的座位名称
+本地座位名称={"DriveSeat"，"Seat"，"VehicleSeat"，"driverseat"}
+for_，在ipairs中的名称(seatNames)do
+本地座位=车辆：FindFirstChild(名称)
+如果座椅和座椅：Isa(“车辆座椅”)，则
+回位座
+结束
+结束
+--如果没有找到标准座位，找任何VehicleSeat
+返回车辆：FindFirstChildWhichIsA("VehicleSeat")
+结束
+
+-- 监听玩家进入载具
+OccupantChanged()上的局部函数
+本地驱动器Seat=findVehicleSeat()
+如果不是驱动器座椅，则
+warn("未找到载具座位！请确保载具有车辆座椅”)
+返回
+结束
+    
+本地占用人=驾驶座占用人
+如果占用，则
+本地播放器=游戏。玩家：GetPlayerFromCharacter(占用者。父母)
+        
+如果播放器和驱动器则座椅
+-- 设置基础属性
+driveSeat.MaxSpeed=CONFIG.BASE_SPEED
+driveSeat.Torque=CONFIG.TORQUE
+driveSeat.TurnSpeed=CONFIG.TURN_SPEED
+            
+-- 初始化玩家状态
+playerStates[player]={
+InVehicle=true，
+DriveSeat=driveSeat，
+BoostLevel=0，
+冷却时间=0，
+LastBoostTime=0
+            }
+            
+--创建或显示GUI
+如果不是guiCache[播放器]，则
+guiCache[player]=createSpeedGUI(player)
+                
+-- 连接按钮事件
+guiCache[播放器]。BoostButton。鼠标按钮1单击：连接(函数()
+applySpeedBoost(播放器)
+结束)
+结束
+            
+--显示GUI
+guiCache[player].MainFrame.Visible=true
+            
+--更新GUI
+updateGUI(播放器，CONFIG.BASE_SPEED，0，0)
+            
+打印(string.format("玩家%s进入载具，基础速度：%D"，player.name，CONFIG.BASE_SPEED))
+结束
+其他
+-- 玩家离开载具
+对于玩家，成对状态(playerStates)do
+如果州。在车上和州。DriveSeat==driveSeat然后
+playerStates[player].InVehicle=false
+                
+--隐藏GUI但不销毁
+如果guiCache[播放器]，则
+guiCache[player].MainFrame.Visible=false
+结束
+                
+-- 重置速度
+如果state.DriveSeat，则
+state.DriveSeat.MaxSpeed=CONFIG.BASE_SPEED
+结束
+                
+print(string.format("玩家%s离开载具"，player.name))
+打破
+结束
+结束
+结束
+结束
+
+-- 连接座位占用变化事件
+本地驱动器seat=findVehicleSeat()
+如果驱动器座椅，则
+driveSeat:GetPropertyChangedSignal(“乘员”)：连接(onOccupantChanged)
+    
+-- 初始检查
+如果驾驶座。 占用人，则
+task.wait(0.5)--等待玩家加载
+onOccupantChanged()
+结束
+其他
+warn("脚本没有找到VehicleSeat，请确保脚本位于载具模型下")
+结束
+
+-- 冷却计时器
+游戏：GetService("RunService")心跳：连接(函数(deltaTime)
+对于玩家，成对状态(playerStates)do
+如果state.cooldown>0，则
+状态。 冷却时间=数学最大值(0，状态.冷却时间-增量时间)
+            
+--更新GUI
+如果state.InVehicle和guiCache[播放器]，则
+本地电流速度=状态。DriveSeat和状态。DriveSeat.MaxSpeed或CONFIG.BASE_SPEED
+updateGUI(播放器，当前速度，状态.BoostLevel，状态.冷却)
+结束
+结束
+结束
+结束)
+
+-- 玩家离开游戏时清理
+播放器。 播放器移除：连接(功能(播放器)
+如果guiCache[播放器]，则
